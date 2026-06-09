@@ -12,3 +12,4 @@ models/hybrid_flow/hybrid_flow_report.json
 sentinelx.sqlite3
 netwatch.sqlite3
 *.sqlite3-journal
+*.csv
