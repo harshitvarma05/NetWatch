@@ -2,6 +2,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import atexit
 import csv
 import io
+import ipaddress
 import json
 import math
 import os
@@ -466,6 +467,7 @@ class LiveTrafficCollector:
         self.process = None
         self.process_lock = threading.Lock()
         self.started_at = None
+        self.cpp_retry_after = 0
         self.capture_seconds = os.environ.get("IDS_CAPTURE_SECONDS", "1")
         self.capture_device = os.environ.get("IDS_CAPTURE_DEVICE", "")
         atexit.register(self.stop)
@@ -489,7 +491,10 @@ class LiveTrafficCollector:
             self.last_error = None
             return pcap_records
         if pcap_records == []:
+            self.mode = "pcap-idle"
+            self.status = "C++ packet collector active; no packets in this window"
             self.last_error = None
+            return []
 
         now = time.time()
         connections = self._read_connections()
@@ -504,7 +509,7 @@ class LiveTrafficCollector:
         active = [
             item
             for item in connections
-            if item["remote_ip"] and not self._is_noise_address(item["remote_ip"])
+            if self._is_useful_connection(item)
         ]
         total_active = max(1, len(active))
         host_counts = Counter(item["remote_ip"] for item in active)
@@ -577,6 +582,8 @@ class LiveTrafficCollector:
     def _ensure_stream_process(self):
         if self.process is not None and self.process.poll() is None:
             return True
+        if time.time() < self.cpp_retry_after:
+            return False
         self.stop()
         try:
             command = [
@@ -600,6 +607,7 @@ class LiveTrafficCollector:
             return True
         except OSError as exc:
             self.last_error = str(exc)
+            self.cpp_retry_after = time.time() + 20
             return False
 
     def _read_stream_line(self):
@@ -609,6 +617,7 @@ class LiveTrafficCollector:
         if not ready:
             if self.process.poll() is not None:
                 self.last_error = self._collector_stderr()
+                self.cpp_retry_after = time.time() + 20
                 self.stop()
                 return None
             self.status = "C++ packet collector running; waiting for next flow window"
@@ -616,6 +625,7 @@ class LiveTrafficCollector:
         line = self.process.stdout.readline()
         if not line:
             self.last_error = self._collector_stderr()
+            self.cpp_retry_after = time.time() + 20
             self.stop()
             return None
         try:
@@ -741,11 +751,33 @@ class LiveTrafficCollector:
         host = re.sub(r"^::ffff:", "", host)
         return host or "*", port if port.isdigit() else "0"
 
+    def _is_useful_connection(self, item):
+        remote_ip = item.get("remote_ip", "")
+        local_ip = item.get("local_ip", "")
+        remote_port = item.get("remote_port", "0")
+        if self._is_noise_address(remote_ip) or self._is_noise_address(local_ip):
+            return False
+        if remote_port == "0":
+            return False
+        return True
+
     def _is_noise_address(self, address):
+        if not address:
+            return True
+        address = address.strip().strip("[]")
+        address = address.split("%", 1)[0]
+        if address in {"*", "*.*", "localhost"}:
+            return True
+        try:
+            parsed = ipaddress.ip_address(address)
+        except ValueError:
+            return True
         return (
-            address in {"*", "0.0.0.0", "::", "::1", "127.0.0.1", "localhost"}
-            or address.startswith("127.")
-            or address.startswith("fe80::")
+            parsed.is_unspecified
+            or parsed.is_loopback
+            or parsed.is_multicast
+            or parsed.is_link_local
+            or parsed.is_reserved
         )
 
     def _service_name(self, remote_port, local_port):
@@ -942,7 +974,7 @@ AUTH = AuthManager()
 class IDSState:
     def __init__(self):
         self.root = Path(__file__).resolve().parent
-        self.storage = Storage(self.root / "netwatch.sqlite3")
+        self.storage = Storage(os.environ.get("IDS_DB_PATH", self.root / "netwatch.sqlite3"))
         self.fallback_model = ExplainableIDSModel()
         self.hybrid_model = HybridFlowModel(self.root / "models" / "hybrid_flow")
         self.imported_model = NSLKDDModel(self.root / "models" / "nsl_kdd")

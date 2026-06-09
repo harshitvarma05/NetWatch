@@ -1,9 +1,11 @@
 import json
 import os
+import tempfile
 import unittest
 
 
 os.environ["IDS_AUTH_DISABLED"] = "1"
+os.environ["IDS_DB_PATH"] = tempfile.NamedTemporaryFile(prefix="netwatch-test-", suffix=".sqlite3", delete=True).name
 
 import app  # noqa: E402
 

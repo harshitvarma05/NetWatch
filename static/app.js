@@ -135,6 +135,7 @@ function renderCollector(collector) {
   if (!collector) return;
   const labels = {
     pcap: "Packet stream",
+    "pcap-idle": "Packet stream idle",
     "pcap-idle-fallback": "Stream idle",
     "netstat-fallback": "Connection fallback",
     initializing: "Collector starting",

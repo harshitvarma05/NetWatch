@@ -124,6 +124,20 @@ std::string tcp_flag(uint8_t flags) {
     return "REJ";
 }
 
+bool is_noise_ipv4(const std::string& address) {
+    in_addr parsed {};
+    if (inet_pton(AF_INET, address.c_str(), &parsed) != 1) {
+        return true;
+    }
+    const uint32_t value = ntohl(parsed.s_addr);
+    const uint8_t first = static_cast<uint8_t>((value >> 24) & 0xff);
+    const uint8_t second = static_cast<uint8_t>((value >> 16) & 0xff);
+    if (value == 0xffffffffu) {
+        return true;
+    }
+    return first == 0 || first == 127 || first >= 224 || (first == 169 && second == 254);
+}
+
 void signal_handler(int) {
     stop_capture = 1;
 }
@@ -153,6 +167,9 @@ void packet_handler(u_char* user, const pcap_pkthdr* header, const u_char* packe
     FlowKey key;
     key.src_ip = source_buffer;
     key.dst_ip = destination_buffer;
+    if (is_noise_ipv4(key.src_ip) || is_noise_ipv4(key.dst_ip)) {
+        return;
+    }
     key.protocol = ip_header->ip_p == IPPROTO_TCP ? "tcp" : ip_header->ip_p == IPPROTO_UDP ? "udp" : "";
     if (key.protocol.empty()) {
         return;
