@@ -53,6 +53,7 @@ function riskScore(item) {
 function renderDashboard(data) {
   document.querySelector("#totalFlows").textContent = formatNumber(data.total_flows);
   document.querySelector("#liveFlowCount").textContent = formatNumber(data.live_flows);
+  document.querySelector("#packetRowsCount").textContent = formatNumber(data.packet_rows || 0);
   document.querySelector("#highSeverity").textContent = formatNumber(data.high);
   document.querySelector("#criticalSeverity").textContent = formatNumber(data.critical);
   document.querySelector("#actionsTaken").textContent = formatNumber(
@@ -135,8 +136,9 @@ function renderCollector(collector) {
   if (!collector) return;
   const labels = {
     pcap: "Packet stream",
+    "pcap-context": "Packet stream context",
     "pcap-idle": "Packet stream idle",
-    "pcap-idle-fallback": "Stream idle",
+    "pcap-idle-fallback": "Stream context",
     "netstat-fallback": "Connection fallback",
     initializing: "Collector starting",
   };
@@ -205,6 +207,41 @@ function renderLiveRows(flows) {
           <td>${prediction.label_name}</td>
           <td>${prediction.confidence}%</td>
           <td>${prediction.recommended_action.action}</td>
+        </tr>
+      `;
+    })
+    .join("");
+}
+
+function formatPacketTime(timestamp) {
+  if (!timestamp) return "--";
+  return new Date(Number(timestamp) * 1000).toLocaleTimeString();
+}
+
+function renderPacketFeed(packets) {
+  const rows = document.querySelector("#packetTableRows");
+  const status = document.querySelector("#packetFeedStatus");
+  if (!rows || !status) return;
+  status.textContent = packets.length ? `${formatNumber(packets.length)} buffered` : "Waiting";
+  if (!packets.length) {
+    rows.innerHTML = `<tr><td colspan="7">No packet rows captured yet.</td></tr>`;
+    return;
+  }
+  rows.innerHTML = packets
+    .slice(-40)
+    .reverse()
+    .map((packet) => {
+      const source = `${packet.source_ip || "--"}:${packet.source_port || 0}`;
+      const destination = `${packet.destination_ip || "--"}:${packet.destination_port || 0}`;
+      return `
+        <tr>
+          <td>${formatPacketTime(packet.timestamp)}</td>
+          <td>${source}</td>
+          <td>${destination}</td>
+          <td>${String(packet.protocol || "--").toUpperCase()}</td>
+          <td>${packet.service || "--"}</td>
+          <td>${formatNumber(packet.length || 0)}</td>
+          <td>${packet.flag || "--"}</td>
         </tr>
       `;
     })
@@ -294,6 +331,7 @@ async function pollLive({ autoSelect = false } = {}) {
     renderDashboard(payload.dashboard);
     renderRiskQueue(currentFlows);
     renderLiveRows(currentFlows);
+    renderPacketFeed(payload.packets || []);
     if (monitorActive) document.querySelector("#liveStatus").textContent = "Live";
     if (currentFlows.length && (!selectedFlow || autoSelect)) {
       renderSelected([...currentFlows].sort((a, b) => riskScore(b) - riskScore(a))[0]);
@@ -329,6 +367,7 @@ async function runDemoCase(key) {
   renderDashboard(payload.dashboard);
   renderRiskQueue(currentFlows);
   renderLiveRows(currentFlows);
+  renderPacketFeed([]);
   renderSelected(payload.flow);
   status.textContent = payload.flow.prediction.label_name;
 }
@@ -351,6 +390,7 @@ async function analyzeCsvFile() {
   renderDashboard(payload.dashboard);
   renderRiskQueue(currentFlows);
   renderLiveRows(currentFlows);
+  renderPacketFeed([]);
   if (currentFlows.length) renderSelected([...currentFlows].sort((a, b) => riskScore(b) - riskScore(a))[0]);
   const breakdown = payload.summary.breakdown || {};
   summary.innerHTML = `
@@ -414,6 +454,7 @@ async function resetRuntime() {
   renderDashboard(payload.dashboard);
   renderRiskQueue([]);
   renderLiveRows([]);
+  renderPacketFeed([]);
   document.querySelector("#predictionLabel").textContent = "No flow selected";
   document.querySelector("#confidenceValue").textContent = "0%";
   document.querySelector("#recommendedAction").textContent = "Awaiting analysis";

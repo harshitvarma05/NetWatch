@@ -35,13 +35,14 @@
       </div>
       <nav>
         <a href="#operations">Operations</a>
+        <a href="#investigation">Investigation</a>
+        <a href="#packets">Packets</a>
         <a href="#demo">Demo</a>
         <a href="#model">Model</a>
         <a href="#batch">Batch</a>
+        <a href="#response">Response</a>
         <a href="#settings">Settings</a>
         <a href="#system">System</a>
-        <a href="#investigation">Investigation</a>
-        <a href="#response">Response</a>
       </nav>
       <div class="collector-card">
         <span id="collectorMode">Collector initializing</span>
@@ -81,6 +82,10 @@
           <strong id="liveFlowCount">0</strong>
         </article>
         <article>
+          <span>Packet rows</span>
+          <strong id="packetRowsCount">0</strong>
+        </article>
+        <article>
           <span>High severity</span>
           <strong id="highSeverity">0</strong>
         </article>
@@ -92,110 +97,6 @@
           <span>Actions taken</span>
           <strong id="actionsTaken">0</strong>
         </article>
-      </section>
-
-      <section class="ops-grid">
-        <section id="demo" class="panel">
-          <div class="panel-header">
-            <div>
-              <p class="eyebrow">Demo Mode</p>
-              <h2>Known traffic cases</h2>
-            </div>
-            <span id="demoStatus" class="quiet-pill">Ready</span>
-          </div>
-          <div id="demoButtons" class="button-grid"></div>
-        </section>
-
-        <section id="model" class="panel">
-          <div class="panel-header">
-            <div>
-              <p class="eyebrow">Model Status</p>
-              <h2>Training profile</h2>
-            </div>
-            <span id="modelMode" class="quiet-pill">Checking</span>
-          </div>
-          <div class="metric-grid">
-            <div>
-              <span>Rows</span>
-              <strong id="trainingRows">0</strong>
-            </div>
-            <div>
-              <span>Accuracy</span>
-              <strong id="modelAccuracy">--</strong>
-            </div>
-            <div>
-              <span>Classes</span>
-              <strong id="modelClasses">--</strong>
-            </div>
-          </div>
-          <div id="labelCounts" class="label-counts"></div>
-        </section>
-
-        <section id="batch" class="panel batch-panel">
-          <div class="panel-header">
-            <div>
-              <p class="eyebrow">Dataset Input</p>
-              <h2>CSV batch prediction</h2>
-            </div>
-            <span id="csvStatus" class="quiet-pill">No file</span>
-          </div>
-          <div class="file-row">
-            <input id="csvFile" type="file" accept=".csv,text/csv" />
-            <button id="runCsv" class="primary">Analyze CSV</button>
-          </div>
-          <div id="csvSummary" class="csv-summary"></div>
-        </section>
-      </section>
-
-      <section id="settings" class="panel settings-panel">
-        <div class="panel-header">
-          <div>
-            <p class="eyebrow">Settings</p>
-            <h2>Runtime controls</h2>
-          </div>
-          <span id="settingsStatus" class="quiet-pill">Saved locally</span>
-        </div>
-        <div class="settings-grid">
-          <label>
-            <span>Capture seconds</span>
-            <input id="captureSeconds" type="number" min="1" max="10" step="1" />
-          </label>
-          <label>
-            <span>Capture device</span>
-            <input id="captureDevice" type="text" placeholder="auto" />
-          </label>
-          <label>
-            <span>CSV row limit</span>
-            <input id="csvRowLimit" type="number" min="1" max="1000" step="1" />
-          </label>
-          <label>
-            <span>High-risk confidence</span>
-            <input id="highRiskConfidence" type="number" min="1" max="100" step="1" />
-          </label>
-          <label class="check-row">
-            <input id="r2lSpecialist" type="checkbox" />
-            <span>Enable R2L credential specialist</span>
-          </label>
-          <div class="settings-actions">
-            <button id="saveSettings" class="primary">Save settings</button>
-            <button id="exportDefense">Export defense CSV</button>
-          </div>
-        </div>
-      </section>
-
-      <section id="system" class="panel system-panel">
-        <div class="panel-header">
-          <div>
-            <p class="eyebrow">System Info</p>
-            <h2>Runtime environment</h2>
-          </div>
-          <span id="systemVersion" class="quiet-pill">v--</span>
-        </div>
-        <div id="systemInfo" class="system-grid"></div>
-        <div class="settings-actions">
-          <button id="refreshSystem">Refresh system info</button>
-          <button id="resetRuntime" class="danger">Reset runtime state</button>
-        </div>
       </section>
 
       <section id="investigation" class="workspace">
@@ -260,6 +161,91 @@
         </section>
       </section>
 
+      <section id="packets" class="packet-panel panel">
+        <div class="panel-header">
+          <div>
+            <p class="eyebrow">Packet Capture</p>
+            <h2>Live packet feed</h2>
+          </div>
+          <span id="packetFeedStatus" class="quiet-pill">Waiting</span>
+        </div>
+        <div class="table-wrap packet-table-wrap">
+          <table class="packet-table">
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Source</th>
+                <th>Destination</th>
+                <th>Protocol</th>
+                <th>Service</th>
+                <th>Length</th>
+                <th>Flag</th>
+              </tr>
+            </thead>
+            <tbody id="packetTableRows">
+              <tr>
+                <td colspan="7">Start the monitor to populate the packet feed.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="ops-grid">
+        <section id="demo" class="panel">
+          <div class="panel-header">
+            <div>
+              <p class="eyebrow">Demo Mode</p>
+              <h2>Known traffic cases</h2>
+            </div>
+            <span id="demoStatus" class="quiet-pill">Ready</span>
+          </div>
+          <div id="demoButtons" class="button-grid"></div>
+        </section>
+
+        <section id="model" class="panel">
+          <div class="panel-header">
+            <div>
+              <p class="eyebrow">Model Status</p>
+              <h2>Training profile</h2>
+            </div>
+            <span id="modelMode" class="quiet-pill">Checking</span>
+          </div>
+          <div class="metric-grid">
+            <div>
+              <span>Rows</span>
+              <strong id="trainingRows">0</strong>
+            </div>
+            <div>
+              <span>Accuracy</span>
+              <strong id="modelAccuracy">--</strong>
+            </div>
+            <div>
+              <span>Classes</span>
+              <strong id="modelClasses">--</strong>
+            </div>
+          </div>
+          <div id="labelCounts" class="label-counts"></div>
+        </section>
+
+        <section id="batch" class="panel batch-panel">
+          <div class="panel-header">
+            <div>
+              <p class="eyebrow">Dataset Input</p>
+              <h2>CSV batch prediction</h2>
+            </div>
+            <span id="csvStatus" class="quiet-pill">No file</span>
+          </div>
+          <div class="file-row">
+            <input id="csvFile" type="file" accept=".csv,text/csv" />
+            <button id="runCsv" class="primary">Analyze CSV</button>
+          </div>
+          <div id="csvSummary" class="csv-summary"></div>
+        </section>
+      </section>
+
+
+
       <section class="insight-grid">
         <section class="panel">
           <div class="panel-header">
@@ -282,6 +268,7 @@
           <div id="topSources" class="source-list"></div>
         </section>
       </section>
+
 
       <section id="response" class="response-grid">
         <section class="panel">
@@ -333,6 +320,57 @@
           </div>
         </section>
       </section>
+      <section id="settings" class="panel settings-panel">
+        <div class="panel-header">
+          <div>
+            <p class="eyebrow">Settings</p>
+            <h2>Runtime controls</h2>
+          </div>
+          <span id="settingsStatus" class="quiet-pill">Saved locally</span>
+        </div>
+        <div class="settings-grid">
+          <label>
+            <span>Capture seconds</span>
+            <input id="captureSeconds" type="number" min="1" max="10" step="1" />
+          </label>
+          <label>
+            <span>Capture device</span>
+            <input id="captureDevice" type="text" placeholder="auto" />
+          </label>
+          <label>
+            <span>CSV row limit</span>
+            <input id="csvRowLimit" type="number" min="1" max="1000" step="1" />
+          </label>
+          <label>
+            <span>High-risk confidence</span>
+            <input id="highRiskConfidence" type="number" min="1" max="100" step="1" />
+          </label>
+          <label class="check-row">
+            <input id="r2lSpecialist" type="checkbox" />
+            <span>Enable R2L credential specialist</span>
+          </label>
+          <div class="settings-actions">
+            <button id="saveSettings" class="primary">Save settings</button>
+            <button id="exportDefense">Export defense CSV</button>
+          </div>
+        </div>
+      </section>
+
+      <section id="system" class="panel system-panel">
+        <div class="panel-header">
+          <div>
+            <p class="eyebrow">System Info</p>
+            <h2>Runtime environment</h2>
+          </div>
+          <span id="systemVersion" class="quiet-pill">v--</span>
+        </div>
+        <div id="systemInfo" class="system-grid"></div>
+        <div class="settings-actions">
+          <button id="refreshSystem">Refresh system info</button>
+          <button id="resetRuntime" class="danger">Reset runtime state</button>
+        </div>
+      </section>
+
     </main>
 
     <script src="/app.js"></script>

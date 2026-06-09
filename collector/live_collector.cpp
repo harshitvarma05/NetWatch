@@ -45,9 +45,22 @@ struct FlowStats {
     std::string flag = "SF";
 };
 
+struct PacketRow {
+    double timestamp = 0;
+    std::string src_ip;
+    std::string dst_ip;
+    uint16_t src_port = 0;
+    uint16_t dst_port = 0;
+    std::string protocol;
+    std::string service;
+    uint32_t length = 0;
+    std::string flag = "SF";
+};
+
 struct CaptureState {
     std::map<FlowKey, FlowStats> flows;
     std::map<std::string, uint32_t> host_counts;
+    std::vector<PacketRow> packets;
     uint32_t error_count = 0;
     uint32_t packet_count = 0;
 };
@@ -197,6 +210,20 @@ void packet_handler(u_char* user, const pcap_pkthdr* header, const u_char* packe
     }
 
     const double seen_at = timestamp_seconds(header->ts);
+    if (state->packets.size() < 500) {
+        state->packets.push_back(PacketRow{
+            seen_at,
+            key.src_ip,
+            key.dst_ip,
+            key.src_port,
+            key.dst_port,
+            key.protocol,
+            service_name(key.dst_port),
+            header->len,
+            flag,
+        });
+    }
+
     auto& flow = state->flows[key];
     if (flow.packet_count == 0) {
         flow.first_seen = seen_at;
@@ -285,6 +312,25 @@ void print_json(const CaptureState& state, const std::string& device, double dur
                   << "\"same_host_rate\":" << std::fixed << std::setprecision(3) << same_host_rate << ","
                   << "\"error_rate\":" << std::fixed << std::setprecision(3) << error_rate << ","
                   << "\"source\":\"pcap\""
+                  << "}";
+    }
+    std::cout << "],\"packets\":[";
+    first = true;
+    for (const auto& packet : state.packets) {
+        if (!first) {
+            std::cout << ",";
+        }
+        first = false;
+        std::cout << "{"
+                  << "\"timestamp\":" << std::fixed << std::setprecision(6) << packet.timestamp << ","
+                  << "\"source_ip\":\"" << json_escape(packet.src_ip) << "\","
+                  << "\"destination_ip\":\"" << json_escape(packet.dst_ip) << "\","
+                  << "\"source_port\":" << packet.src_port << ","
+                  << "\"destination_port\":" << packet.dst_port << ","
+                  << "\"protocol\":\"" << packet.protocol << "\","
+                  << "\"service\":\"" << packet.service << "\","
+                  << "\"length\":" << packet.length << ","
+                  << "\"flag\":\"" << packet.flag << "\""
                   << "}";
     }
     std::cout << "],\"error\":null}" << std::endl;

@@ -468,6 +468,7 @@ class LiveTrafficCollector:
         self.process_lock = threading.Lock()
         self.started_at = None
         self.cpp_retry_after = 0
+        self.latest_packets = []
         self.capture_seconds = os.environ.get("IDS_CAPTURE_SECONDS", "1")
         self.capture_device = os.environ.get("IDS_CAPTURE_DEVICE", "")
         atexit.register(self.stop)
@@ -491,10 +492,7 @@ class LiveTrafficCollector:
             self.last_error = None
             return pcap_records
         if pcap_records == []:
-            self.mode = "pcap-idle"
-            self.status = "C++ packet collector active; no packets in this window"
             self.last_error = None
-            return []
 
         now = time.time()
         connections = self._read_connections()
@@ -543,14 +541,14 @@ class LiveTrafficCollector:
                     "source": "netstat-fallback",
                 }
             )
-        self.mode = "pcap-idle-fallback" if pcap_records == [] else "netstat-fallback"
+        self.mode = "pcap-context" if pcap_records == [] else "netstat-fallback"
         if records:
-            detail = "C++ collector saw no packets in this window; using OS connections"
+            detail = "C++ stream idle; showing filtered OS connection context"
             if pcap_records is None:
-                detail = "C++ packet capture unavailable; using OS connections"
+                detail = "C++ packet capture unavailable; using filtered OS connections"
             self.status = f"{detail} ({len(records)} flows)"
         else:
-            self.status = "No live flows visible to fallback collector"
+            self.status = "C++ stream idle; no useful external flows visible" if pcap_records == [] else "No live flows visible to fallback collector"
         return records
 
     def health(self):
@@ -562,6 +560,7 @@ class LiveTrafficCollector:
             "collector_source": str(self.collector_source),
             "streaming": self.process is not None and self.process.poll() is None,
             "uptime_seconds": round(time.time() - self.started_at) if self.started_at else 0,
+            "packet_rows": len(self.latest_packets),
         }
 
     def _collect_with_cpp(self):
@@ -574,11 +573,20 @@ class LiveTrafficCollector:
             if line is None:
                 return []
             payload = json.loads(line)
+            device = payload.get("device", "")
             flows = payload.get("flows", [])
+            packets = payload.get("packets", [])
             for flow in flows:
-                flow["collector_device"] = payload.get("device", "")
+                flow["collector_device"] = device
+            clean_packets = []
+            for packet in packets:
+                packet = dict(packet)
+                packet["collector_device"] = device
+                clean_packets.append(packet)
+            if clean_packets:
+                self.latest_packets = (self.latest_packets + clean_packets)[-1000:]
             return flows
-        
+
     def _ensure_stream_process(self):
         if self.process is not None and self.process.poll() is None:
             return True
@@ -991,6 +999,7 @@ class IDSState:
         self.records = []
         self.results = []
         self.latest_live = []
+        self.collector.latest_packets = []
         self.last_capture_at = None
         self.blocked_ips = []
         self.suspicious_ips = []
@@ -1049,6 +1058,7 @@ class IDSState:
         self.records = []
         self.results = []
         self.latest_live = []
+        self.collector.latest_packets = []
         self.last_capture_at = None
         self.blocked_ips = []
         self.suspicious_ips = []
@@ -1071,6 +1081,7 @@ class IDSState:
         return {
             "captured": len(records),
             "flows": self.latest_live,
+            "packets": self.collector.latest_packets[-250:],
             "dashboard": self.dashboard(),
             "collector": self.collector.health(),
         }
@@ -1280,6 +1291,7 @@ class IDSState:
                 ATTACK_LABELS[label]: counts[label] for label in self.fallback_model.labels
             },
             "live_flows": len(self.latest_live),
+            "packet_rows": len(self.collector.latest_packets),
             "last_capture_at": self.last_capture_at,
             "collector": self.collector.health(),
             "model": self.model_health(),
@@ -1401,6 +1413,7 @@ class IDSState:
             "dashboard": self.dashboard(),
             "model": self.model_health(),
             "latest_flows": self.latest_live[:100],
+            "latest_packets": self.collector.latest_packets[-500:],
             "defense": {
                 "blocked_ips": self.blocked_ips,
                 "rate_limited_ips": self.rate_limited_ips,
@@ -1429,6 +1442,7 @@ class IDSState:
             "runtime": {
                 "predictions_loaded": len(self.results),
                 "latest_window": len(self.latest_live),
+                "packet_rows": len(self.collector.latest_packets),
                 "defense_actions": len(self.storage.defense_entries()),
             },
         }
@@ -1553,6 +1567,8 @@ class Handler(BaseHTTPRequestHandler):
             self._send(STATE.latest_prediction())
         elif path == "/api/live":
             self._send(STATE.capture_live())
+        elif path == "/api/packets":
+            self._send({"packets": STATE.collector.latest_packets[-500:], "collector": STATE.collector.health()})
         elif path == "/api/health":
             self._send({"status": "ok", "collector": STATE.collector.health(), "model": STATE.model_health()})
         elif path == "/api/demo-cases":

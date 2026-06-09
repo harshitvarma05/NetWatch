@@ -12,7 +12,9 @@ NetWatch is a hybrid real-time intrusion detection system. It combines live pack
   - U2R Attack
   - Botnet / Suspicious Traffic
 - Captures live traffic with a C++ `libpcap` collector.
-- Falls back to Python/OS connection snapshots if packet capture is blocked.
+- Shows a rolling live packet feed with timestamp, source, destination, protocol, service, length, and flag.
+- Aggregates packets into ML-ready flow windows for classification.
+- Falls back to filtered Python/OS connection context if packet capture is blocked or temporarily idle.
 - Uses a trained hybrid Random Forest model for Normal, DoS, Probe, and Botnet traffic.
 - Uses imported NSL-KDD assets and specialist logic for R2L/U2R-style coverage.
 - Explains each prediction with top contributing features.
@@ -117,6 +119,7 @@ IDS_AUTH_DISABLED=1 ./run.sh
 ## Dashboard Features
 
 - Live monitoring panel
+- Wireshark-style packet feed backed by the C++ collector
 - Demo Mode with known traffic cases
 - Model Status with training rows, classes, accuracy, and label counts
 - CSV batch prediction
@@ -160,7 +163,8 @@ Current tests cover:
 ## How It Works
 
 1. Traffic enters from live capture, OS fallback, dashboard demo cases, or uploaded CSV.
-2. Flow features are normalized into the project schema:
+2. Live packet capture stores recent packet rows for inspection while aggregating the same traffic into flow windows.
+3. Flow features are normalized into the project schema:
    - source bytes
    - destination bytes
    - packet count
@@ -172,11 +176,11 @@ Current tests cover:
    - connection rate
    - same-host rate
    - error rate
-3. The ensemble model predicts the class.
-4. The explainability module returns the top contributing features.
-5. The dashboard shows prediction, confidence, probabilities, and recommended response.
-6. The adaptive response simulator updates blocked, rate-limited, suspicious, or alert lists.
-7. Results are persisted in SQLite and can be exported.
+4. The ensemble model predicts the class.
+5. The explainability module returns the top contributing features.
+6. The dashboard shows packet rows, prediction, confidence, probabilities, and recommended response.
+7. The adaptive response simulator updates blocked, rate-limited, suspicious, or alert lists.
+8. Results are persisted in SQLite and can be exported.
 
 ## Live Collector
 
@@ -186,7 +190,7 @@ The C++ collector is located at:
 collector/live_collector.cpp
 ```
 
-It captures TCP/UDP IPv4 packets with `libpcap`, aggregates them into flows, and streams JSON flow windows to the Python backend.
+It captures TCP/UDP IPv4 packets with `libpcap`, keeps bounded packet rows for dashboard inspection, aggregates the same packets into flows, and streams JSON windows to the Python backend.
 
 The Python app builds the collector automatically when possible. Manual build:
 
@@ -239,6 +243,7 @@ Monitoring and prediction:
 - `GET /api/dashboard`
 - `GET /api/live`
 - `GET /api/sample`
+- `GET /api/packets`
 - `POST /api/predict`
 - `POST /api/batch`
 - `POST /api/csv`
