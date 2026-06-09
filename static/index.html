@@ -1,0 +1,340 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>NetWatch</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div id="authOverlay" class="auth-overlay">
+      <form id="loginForm" class="auth-card">
+        <div class="brand">
+          <span class="brand-mark">NW</span>
+          <div>
+            <strong>NetWatch</strong>
+            <small>Local console access</small>
+          </div>
+        </div>
+        <label>
+          <span>Passcode</span>
+          <input id="passcodeInput" type="password" autocomplete="current-password" placeholder="netwatch" />
+        </label>
+        <button class="primary" type="submit">Unlock dashboard</button>
+        <small id="loginStatus">Default passcode is netwatch unless changed with IDS_PASSCODE.</small>
+      </form>
+    </div>
+
+    <aside class="sidebar">
+      <div class="brand">
+        <span class="brand-mark">NW</span>
+        <div>
+          <strong>NetWatch</strong>
+          <small>Intrusion Detection</small>
+        </div>
+      </div>
+      <nav>
+        <a href="#operations">Operations</a>
+        <a href="#demo">Demo</a>
+        <a href="#model">Model</a>
+        <a href="#batch">Batch</a>
+        <a href="#settings">Settings</a>
+        <a href="#system">System</a>
+        <a href="#investigation">Investigation</a>
+        <a href="#response">Response</a>
+      </nav>
+      <div class="collector-card">
+        <span id="collectorMode">Collector initializing</span>
+        <strong id="collectorDetail">Waiting for stream</strong>
+        <small id="collectorUptime">uptime 0s</small>
+      </div>
+      <div class="collector-card">
+        <span>Model engine</span>
+        <strong id="modelEngine">Checking model</strong>
+        <small id="modelDetail">Waiting for first prediction</small>
+      </div>
+    </aside>
+
+    <main>
+      <div id="notice" class="notice hidden"></div>
+
+      <header id="operations" class="app-header">
+        <div>
+          <p class="eyebrow">Security Operations</p>
+          <h1>Live intrusion monitoring</h1>
+        </div>
+        <div class="monitor-actions">
+          <span id="liveStatus" class="status">Paused</span>
+          <button id="exportReport">Export report</button>
+          <button id="exportPredictions">Export CSV</button>
+          <button id="toggleLive" class="primary">Start monitor</button>
+        </div>
+      </header>
+
+      <section class="status-grid" aria-label="Operational summary">
+        <article>
+          <span>Total flows</span>
+          <strong id="totalFlows">0</strong>
+        </article>
+        <article>
+          <span>Active window</span>
+          <strong id="liveFlowCount">0</strong>
+        </article>
+        <article>
+          <span>High severity</span>
+          <strong id="highSeverity">0</strong>
+        </article>
+        <article>
+          <span>Critical</span>
+          <strong id="criticalSeverity">0</strong>
+        </article>
+        <article>
+          <span>Actions taken</span>
+          <strong id="actionsTaken">0</strong>
+        </article>
+      </section>
+
+      <section class="ops-grid">
+        <section id="demo" class="panel">
+          <div class="panel-header">
+            <div>
+              <p class="eyebrow">Demo Mode</p>
+              <h2>Known traffic cases</h2>
+            </div>
+            <span id="demoStatus" class="quiet-pill">Ready</span>
+          </div>
+          <div id="demoButtons" class="button-grid"></div>
+        </section>
+
+        <section id="model" class="panel">
+          <div class="panel-header">
+            <div>
+              <p class="eyebrow">Model Status</p>
+              <h2>Training profile</h2>
+            </div>
+            <span id="modelMode" class="quiet-pill">Checking</span>
+          </div>
+          <div class="metric-grid">
+            <div>
+              <span>Rows</span>
+              <strong id="trainingRows">0</strong>
+            </div>
+            <div>
+              <span>Accuracy</span>
+              <strong id="modelAccuracy">--</strong>
+            </div>
+            <div>
+              <span>Classes</span>
+              <strong id="modelClasses">--</strong>
+            </div>
+          </div>
+          <div id="labelCounts" class="label-counts"></div>
+        </section>
+
+        <section id="batch" class="panel batch-panel">
+          <div class="panel-header">
+            <div>
+              <p class="eyebrow">Dataset Input</p>
+              <h2>CSV batch prediction</h2>
+            </div>
+            <span id="csvStatus" class="quiet-pill">No file</span>
+          </div>
+          <div class="file-row">
+            <input id="csvFile" type="file" accept=".csv,text/csv" />
+            <button id="runCsv" class="primary">Analyze CSV</button>
+          </div>
+          <div id="csvSummary" class="csv-summary"></div>
+        </section>
+      </section>
+
+      <section id="settings" class="panel settings-panel">
+        <div class="panel-header">
+          <div>
+            <p class="eyebrow">Settings</p>
+            <h2>Runtime controls</h2>
+          </div>
+          <span id="settingsStatus" class="quiet-pill">Saved locally</span>
+        </div>
+        <div class="settings-grid">
+          <label>
+            <span>Capture seconds</span>
+            <input id="captureSeconds" type="number" min="1" max="10" step="1" />
+          </label>
+          <label>
+            <span>Capture device</span>
+            <input id="captureDevice" type="text" placeholder="auto" />
+          </label>
+          <label>
+            <span>CSV row limit</span>
+            <input id="csvRowLimit" type="number" min="1" max="1000" step="1" />
+          </label>
+          <label>
+            <span>High-risk confidence</span>
+            <input id="highRiskConfidence" type="number" min="1" max="100" step="1" />
+          </label>
+          <label class="check-row">
+            <input id="r2lSpecialist" type="checkbox" />
+            <span>Enable R2L credential specialist</span>
+          </label>
+          <div class="settings-actions">
+            <button id="saveSettings" class="primary">Save settings</button>
+            <button id="exportDefense">Export defense CSV</button>
+          </div>
+        </div>
+      </section>
+
+      <section id="system" class="panel system-panel">
+        <div class="panel-header">
+          <div>
+            <p class="eyebrow">System Info</p>
+            <h2>Runtime environment</h2>
+          </div>
+          <span id="systemVersion" class="quiet-pill">v--</span>
+        </div>
+        <div id="systemInfo" class="system-grid"></div>
+        <div class="settings-actions">
+          <button id="refreshSystem">Refresh system info</button>
+          <button id="resetRuntime" class="danger">Reset runtime state</button>
+        </div>
+      </section>
+
+      <section id="investigation" class="workspace">
+        <section class="panel queue-panel">
+          <div class="panel-header">
+            <div>
+              <p class="eyebrow">Alert Queue</p>
+              <h2>Prioritized flows</h2>
+            </div>
+            <span id="queueHealth" class="quiet-pill">No active alerts</span>
+          </div>
+          <div id="riskQueue" class="risk-queue"></div>
+        </section>
+
+        <section class="panel detail-panel">
+          <div class="detail-header">
+            <div>
+              <p class="eyebrow">Investigation</p>
+              <h2 id="predictionLabel">No flow selected</h2>
+            </div>
+            <div class="confidence-block">
+              <strong id="confidenceValue">0%</strong>
+              <span>confidence</span>
+            </div>
+          </div>
+
+          <div class="route-card">
+            <div>
+              <span>Source</span>
+              <strong id="selectedSource">--</strong>
+            </div>
+            <div class="route-line"></div>
+            <div>
+              <span>Destination</span>
+              <strong id="selectedDestination">--</strong>
+            </div>
+          </div>
+
+          <div class="attribute-grid">
+            <span id="selectedProtocol">Protocol --</span>
+            <span id="selectedService">Service --</span>
+            <span id="selectedPackets">0 packets</span>
+            <span id="selectedDuration">0s duration</span>
+          </div>
+
+          <div class="response-strip">
+            <span id="severityBadge">Severity</span>
+            <strong id="recommendedAction">Awaiting analysis</strong>
+            <button id="applyDefense" class="danger" disabled>Apply response</button>
+          </div>
+
+          <div class="analysis-grid">
+            <section>
+              <h3>Model explanation</h3>
+              <ol id="explanationList" class="explanation-list"></ol>
+            </section>
+            <section>
+              <h3>Class probabilities</h3>
+              <div id="probabilities" class="probabilities"></div>
+            </section>
+          </div>
+        </section>
+      </section>
+
+      <section class="insight-grid">
+        <section class="panel">
+          <div class="panel-header">
+            <div>
+              <p class="eyebrow">Model Output</p>
+              <h2>Classification mix</h2>
+            </div>
+            <span id="normalTraffic" class="quiet-pill">0 normal</span>
+          </div>
+          <div id="breakdown" class="breakdown"></div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header">
+            <div>
+              <p class="eyebrow">Source Activity</p>
+              <h2>Top talkers</h2>
+            </div>
+          </div>
+          <div id="topSources" class="source-list"></div>
+        </section>
+      </section>
+
+      <section id="response" class="response-grid">
+        <section class="panel">
+          <div class="panel-header">
+            <div>
+              <p class="eyebrow">Response State</p>
+              <h2>Control lists</h2>
+            </div>
+          </div>
+          <div class="lists">
+            <div>
+              <h3>Blocked</h3>
+              <ul id="blockedIps"></ul>
+            </div>
+            <div>
+              <h3>Rate limited</h3>
+              <ul id="rateLimitedIps"></ul>
+            </div>
+            <div>
+              <h3>Suspicious</h3>
+              <ul id="suspiciousIps"></ul>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header">
+            <div>
+              <p class="eyebrow">Event Stream</p>
+              <h2>Recent classifications</h2>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Flow</th>
+                  <th>Class</th>
+                  <th>Confidence</th>
+                  <th>Response</th>
+                </tr>
+              </thead>
+              <tbody id="liveRows">
+                <tr>
+                  <td colspan="4">Start the monitor to populate the event stream.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+    </main>
+
+    <script src="/app.js"></script>
+  </body>
+</html>
