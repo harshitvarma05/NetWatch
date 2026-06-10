@@ -80,10 +80,22 @@ Or install the exact versions used during development:
 python3 -m pip install -r requirements-lock.txt
 ```
 
-Start the app:
+Start the app on macOS/Linux:
 
 ```bash
 ./run.sh
+```
+
+Start the app on Windows PowerShell:
+
+```powershell
+.\run.ps1
+```
+
+Or from Command Prompt:
+
+```bat
+run.bat
 ```
 
 Open:
@@ -104,16 +116,28 @@ Use a custom passcode:
 IDS_PASSCODE=your-passcode ./run.sh
 ```
 
-Use another port:
+Use another port on macOS/Linux:
 
 ```bash
 PORT=8011 ./run.sh
 ```
 
-Disable auth for automated/local testing:
+Use another port on Windows PowerShell:
+
+```powershell
+$env:PORT=8011; .\run.ps1
+```
+
+Disable auth for automated/local testing on macOS/Linux:
 
 ```bash
 IDS_AUTH_DISABLED=1 ./run.sh
+```
+
+Disable auth on Windows PowerShell:
+
+```powershell
+$env:IDS_AUTH_DISABLED=1; .\run.ps1
 ```
 
 ## Dashboard Features
@@ -182,6 +206,30 @@ Current tests cover:
 7. The adaptive response simulator updates blocked, rate-limited, suspicious, or alert lists.
 8. Results are persisted in SQLite and can be exported.
 
+## Platform Support
+
+NetWatch runs on macOS, Linux, and Windows.
+
+macOS/Linux:
+
+- `run.sh` starts the app.
+- Raw packet capture uses `libpcap`.
+- If packet capture is blocked, the app falls back to filtered OS connection snapshots.
+
+Windows:
+
+- `run.ps1` and `run.bat` start the app.
+- The app uses PowerShell `Get-NetTCPConnection` and `Get-NetAdapterStatistics` for OS fallback monitoring.
+- Raw packet capture requires Npcap and the Npcap SDK. Without them, the dashboard still works with OS connection context, but the packet feed will only populate when the C++ collector is available.
+- For C++ packet capture on Windows, install Npcap, install the Npcap SDK, then set `NPCAP_SDK` if it is not found automatically:
+
+```powershell
+$env:NPCAP_SDK="C:\Program Files\Npcap\SDK"
+.\run.ps1
+```
+
+The Windows collector can build with either Visual Studio `cl` or a compatible `g++`/`clang++` toolchain.
+
 ## Live Collector
 
 The C++ collector is located at:
@@ -192,16 +240,28 @@ collector/live_collector.cpp
 
 It captures TCP/UDP IPv4 packets with `libpcap`, keeps bounded packet rows for dashboard inspection, aggregates the same packets into flows, and streams JSON windows to the Python backend.
 
-The Python app builds the collector automatically when possible. Manual build:
+The Python app builds the collector automatically when possible. Manual macOS/Linux build:
 
 ```bash
 c++ -std=c++17 -O2 -Wall -Wextra collector/live_collector.cpp -lpcap -o collector/live_collector
 ```
 
-Manual streaming run:
+Manual Windows build with Visual Studio Developer PowerShell and Npcap SDK:
+
+```powershell
+cl /EHsc /std:c++17 /O2 /I"$env:NPCAP_SDK\Include" collector\live_collector.cpp /link /LIBPATH:"$env:NPCAP_SDK\Lib\x64" wpcap.lib Packet.lib Ws2_32.lib /OUT:collector\live_collector.exe
+```
+
+Manual streaming run on macOS/Linux:
 
 ```bash
 sudo ./collector/live_collector --stream --duration 1
+```
+
+Manual streaming run on Windows from an elevated terminal:
+
+```powershell
+.\collector\live_collector.exe --stream --duration 1
 ```
 
 Optional capture settings:
@@ -218,7 +278,9 @@ collector/live_collector.cpp   C++ packet capture and flow aggregation
 hybrid_flow_model.py           Runtime loader for hybrid flow model
 nsl_kdd_adapter.py             NSL-KDD model adapter
 demo_cases.py                  Repeatable API demo script
-run.sh                         One-command startup
+run.sh                         macOS/Linux startup
+run.ps1                        Windows PowerShell startup
+run.bat                        Windows Command Prompt wrapper
 run_tests.sh                   Test runner
 requirements.txt               Flexible dependency list
 requirements-lock.txt          Exact dependency versions used locally

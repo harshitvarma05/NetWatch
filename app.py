@@ -10,6 +10,7 @@ import random
 import re
 import secrets
 import select
+import shutil
 import sqlite3
 import subprocess
 import threading
@@ -460,7 +461,9 @@ class LiveTrafficCollector:
         self.previous_sample_time = None
         self.root = Path(__file__).resolve().parent
         self.collector_source = self.root / "collector" / "live_collector.cpp"
-        self.collector_binary = self.root / "collector" / "live_collector"
+        binary_name = "live_collector.exe" if os.name == "nt" else "live_collector"
+        self.collector_binary = self.root / "collector" / binary_name
+        self.platform = "windows" if os.name == "nt" else "unix"
         self.mode = "initializing"
         self.status = "Collector not started"
         self.last_error = None
@@ -538,10 +541,10 @@ class LiveTrafficCollector:
                     "connection_rate": connection_rate,
                     "same_host_rate": round(host_counts[item["remote_ip"]] / total_active, 3),
                     "error_rate": round(error_count / total_active, 3),
-                    "source": "netstat-fallback",
+                    "source": "os-fallback",
                 }
             )
-        self.mode = "pcap-context" if pcap_records == [] else "netstat-fallback"
+        self.mode = "pcap-context" if pcap_records == [] else "os-fallback"
         if records:
             detail = "C++ stream idle; showing filtered OS connection context"
             if pcap_records is None:
@@ -561,6 +564,7 @@ class LiveTrafficCollector:
             "streaming": self.process is not None and self.process.poll() is None,
             "uptime_seconds": round(time.time() - self.started_at) if self.started_at else 0,
             "packet_rows": len(self.latest_packets),
+            "platform": self.platform,
         }
 
     def _collect_with_cpp(self):
@@ -621,16 +625,19 @@ class LiveTrafficCollector:
     def _read_stream_line(self):
         if not self.process or not self.process.stdout:
             return None
-        ready, _, _ = select.select([self.process.stdout], [], [], 1.6)
-        if not ready:
-            if self.process.poll() is not None:
-                self.last_error = self._collector_stderr()
-                self.cpp_retry_after = time.time() + 20
-                self.stop()
+        if os.name == "nt":
+            line = self.process.stdout.readline()
+        else:
+            ready, _, _ = select.select([self.process.stdout], [], [], 1.6)
+            if not ready:
+                if self.process.poll() is not None:
+                    self.last_error = self._collector_stderr()
+                    self.cpp_retry_after = time.time() + 20
+                    self.stop()
+                    return None
+                self.status = "C++ packet collector running; waiting for next flow window"
                 return None
-            self.status = "C++ packet collector running; waiting for next flow window"
-            return None
-        line = self.process.stdout.readline()
+            line = self.process.stdout.readline()
         if not line:
             self.last_error = self._collector_stderr()
             self.cpp_retry_after = time.time() + 20
@@ -672,29 +679,95 @@ class LiveTrafficCollector:
             return False
         if self.collector_binary.exists() and self.collector_binary.stat().st_mtime >= self.collector_source.stat().st_mtime:
             return True
+        command = self._collector_build_command()
+        if not command:
+            if os.name == "nt":
+                self.last_error = "Npcap SDK/compiler not configured; using Windows OS connection fallback"
+            else:
+                self.last_error = "C++ compiler or libpcap not available; using OS connection fallback"
+            return False
         try:
             subprocess.check_output(
-                [
-                    "c++",
-                    "-std=c++17",
-                    "-O2",
-                    "-Wall",
-                    "-Wextra",
-                    str(self.collector_source),
-                    "-lpcap",
-                    "-o",
-                    str(self.collector_binary),
-                ],
+                command,
                 text=True,
                 stderr=subprocess.STDOUT,
-                timeout=20,
+                timeout=30,
             )
             return True
         except (OSError, subprocess.SubprocessError) as exc:
             self.last_error = str(exc)
             return False
 
+    def _collector_build_command(self):
+        if os.name != "nt":
+            compiler = shutil.which("c++") or shutil.which("g++") or shutil.which("clang++")
+            if not compiler:
+                return None
+            return [
+                compiler,
+                "-std=c++17",
+                "-O2",
+                "-Wall",
+                "-Wextra",
+                str(self.collector_source),
+                "-lpcap",
+                "-o",
+                str(self.collector_binary),
+            ]
+
+        npcap_sdk = os.environ.get("NPCAP_SDK") or os.environ.get("NPCAP_SDK_DIR")
+        if not npcap_sdk:
+            candidate = Path(os.environ.get("ProgramFiles", "C:/Program Files")) / "Npcap" / "SDK"
+            if candidate.exists():
+                npcap_sdk = str(candidate)
+        if not npcap_sdk:
+            return None
+        sdk = Path(npcap_sdk)
+        include_dir = sdk / "Include"
+        arch = "x64" if os.environ.get("PROCESSOR_ARCHITECTURE", "").endswith("64") else ""
+        lib_dir = sdk / "Lib" / arch if arch else sdk / "Lib"
+        if not lib_dir.exists():
+            lib_dir = sdk / "Lib"
+
+        cl = shutil.which("cl")
+        if cl:
+            return [
+                cl,
+                "/EHsc",
+                "/std:c++17",
+                "/O2",
+                f"/I{include_dir}",
+                str(self.collector_source),
+                "/link",
+                f"/LIBPATH:{lib_dir}",
+                "wpcap.lib",
+                "Packet.lib",
+                "Ws2_32.lib",
+                f"/OUT:{self.collector_binary}",
+            ]
+
+        gxx = shutil.which("g++") or shutil.which("clang++")
+        if gxx:
+            return [
+                gxx,
+                "-std=c++17",
+                "-O2",
+                "-Wall",
+                "-Wextra",
+                f"-I{include_dir}",
+                str(self.collector_source),
+                f"-L{lib_dir}",
+                "-lwpcap",
+                "-lPacket",
+                "-lws2_32",
+                "-o",
+                str(self.collector_binary),
+            ]
+        return None
+
     def _read_connections(self):
+        if os.name == "nt":
+            return self._read_windows_connections()
         try:
             output = subprocess.check_output(
                 ["netstat", "-an"],
@@ -729,6 +802,8 @@ class LiveTrafficCollector:
         return records
 
     def _read_interface_bytes(self):
+        if os.name == "nt":
+            return self._read_windows_interface_bytes()
         try:
             output = subprocess.check_output(
                 ["netstat", "-ibn"],
@@ -748,6 +823,74 @@ class LiveTrafficCollector:
             if len(numeric) >= 4:
                 best_total = max(best_total, numeric[-4] + numeric[-1])
         return best_total or None
+
+
+    def _powershell_command(self):
+        return shutil.which("powershell") or shutil.which("pwsh") or "powershell"
+
+    def _read_windows_connections(self):
+        script = """
+$rows = Get-NetTCPConnection -ErrorAction SilentlyContinue |
+  Where-Object { $_.RemoteAddress -and $_.RemoteAddress -notin @('0.0.0.0','::','*') -and $_.RemotePort -ne 0 } |
+  Select-Object @{Name='protocol';Expression={'tcp'}},LocalAddress,LocalPort,RemoteAddress,RemotePort,State
+$rows | ConvertTo-Json -Compress
+"""
+        try:
+            output = subprocess.check_output(
+                [self._powershell_command(), "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script],
+                text=True,
+                stderr=subprocess.DEVNULL,
+                timeout=4,
+            ).strip()
+        except (OSError, subprocess.SubprocessError):
+            return []
+        if not output:
+            return []
+        try:
+            parsed = json.loads(output)
+        except json.JSONDecodeError:
+            return []
+        if isinstance(parsed, dict):
+            parsed = [parsed]
+        records = []
+        for item in parsed or []:
+            local_ip = str(item.get("LocalAddress", ""))
+            remote_ip = str(item.get("RemoteAddress", ""))
+            local_port = str(item.get("LocalPort", "0") or "0")
+            remote_port = str(item.get("RemotePort", "0") or "0")
+            records.append(
+                {
+                    "protocol": "tcp",
+                    "local_ip": local_ip,
+                    "local_port": local_port,
+                    "remote_ip": remote_ip,
+                    "remote_port": remote_port,
+                    "flag": self._tcp_flag(str(item.get("State", "ESTABLISHED")), "tcp"),
+                }
+            )
+        return records
+
+    def _read_windows_interface_bytes(self):
+        script = """
+$stats = Get-NetAdapterStatistics -ErrorAction SilentlyContinue
+$rx = ($stats | Measure-Object -Property ReceivedBytes -Sum).Sum
+$tx = ($stats | Measure-Object -Property SentBytes -Sum).Sum
+[pscustomobject]@{bytes=[int64]($rx + $tx)} | ConvertTo-Json -Compress
+"""
+        try:
+            output = subprocess.check_output(
+                [self._powershell_command(), "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script],
+                text=True,
+                stderr=subprocess.DEVNULL,
+                timeout=4,
+            ).strip()
+        except (OSError, subprocess.SubprocessError):
+            return None
+        try:
+            parsed = json.loads(output)
+            return int(parsed.get("bytes", 0)) or None
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return None
 
     def _split_endpoint(self, endpoint):
         if not endpoint or endpoint in {"*.*", "*"}:
@@ -1427,6 +1570,7 @@ class IDSState:
         return {
             "project": "NetWatch",
             "version": "1.0.0",
+            "platform": "Windows" if os.name == "nt" else "Unix/macOS",
             "root": str(self.root),
             "database": str(self.storage.path),
             "database_exists": self.storage.path.exists(),

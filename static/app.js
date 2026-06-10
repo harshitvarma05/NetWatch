@@ -119,6 +119,7 @@ function renderSystemInfo(info) {
   document.querySelector("#systemVersion").textContent = `v${info.version || "--"}`;
   const fields = [
     ["Project", info.project],
+    ["Platform", info.platform],
     ["Dataset", info.dataset?.exists ? `${info.dataset.name} (${info.dataset.size_mb} MB)` : "Missing"],
     ["Active model", info.model?.active],
     ["Collector", info.collector?.mode],
@@ -140,6 +141,7 @@ function renderCollector(collector) {
     "pcap-idle": "Packet stream idle",
     "pcap-idle-fallback": "Stream context",
     "netstat-fallback": "Connection fallback",
+    "os-fallback": "Connection fallback",
     initializing: "Collector starting",
   };
   document.querySelector("#collectorMode").textContent = labels[collector.mode] || "Collector";

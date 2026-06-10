@@ -1,7 +1,13 @@
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#else
 #include <arpa/inet.h>
-#include <netinet/ip.h>
-#include <netinet/tcp.h>
-#include <netinet/udp.h>
+#include <netinet/in.h>
+#endif
 #include <pcap.h>
 
 #include <algorithm>
@@ -16,12 +22,51 @@
 #include <set>
 #include <sstream>
 #include <string>
+#include <tuple>
 #include <vector>
 
 namespace {
 
 constexpr int kEthernetHeaderLength = 14;
+constexpr uint8_t kTcpFin = 0x01;
+constexpr uint8_t kTcpSyn = 0x02;
+constexpr uint8_t kTcpRst = 0x04;
+constexpr uint8_t kTcpAck = 0x10;
 volatile std::sig_atomic_t stop_capture = 0;
+
+#pragma pack(push, 1)
+struct Ipv4Header {
+    uint8_t version_ihl;
+    uint8_t tos;
+    uint16_t total_length;
+    uint16_t identification;
+    uint16_t flags_fragment;
+    uint8_t ttl;
+    uint8_t protocol;
+    uint16_t checksum;
+    uint32_t src_addr;
+    uint32_t dst_addr;
+};
+
+struct TcpHeader {
+    uint16_t src_port;
+    uint16_t dst_port;
+    uint32_t sequence;
+    uint32_t acknowledgement;
+    uint8_t data_offset_reserved;
+    uint8_t flags;
+    uint16_t window;
+    uint16_t checksum;
+    uint16_t urgent_pointer;
+};
+
+struct UdpHeader {
+    uint16_t src_port;
+    uint16_t dst_port;
+    uint16_t length;
+    uint16_t checksum;
+};
+#pragma pack(pop)
 
 struct FlowKey {
     std::string src_ip;
@@ -122,16 +167,16 @@ std::string service_name(uint16_t port) {
 }
 
 std::string tcp_flag(uint8_t flags) {
-    if ((flags & TH_SYN) && !(flags & TH_ACK)) {
+    if ((flags & kTcpSyn) && !(flags & kTcpAck)) {
         return "S0";
     }
-    if (flags & TH_RST) {
+    if (flags & kTcpRst) {
         return "RSTO";
     }
-    if (flags & TH_FIN) {
+    if (flags & kTcpFin) {
         return "SF";
     }
-    if (flags & TH_ACK) {
+    if (flags & kTcpAck) {
         return "SF";
     }
     return "REJ";
@@ -157,25 +202,22 @@ void signal_handler(int) {
 
 void packet_handler(u_char* user, const pcap_pkthdr* header, const u_char* packet) {
     auto* state = reinterpret_cast<CaptureState*>(user);
-    if (!header || !packet || header->caplen < kEthernetHeaderLength + sizeof(ip)) {
+    if (!header || !packet || header->caplen < kEthernetHeaderLength + sizeof(Ipv4Header)) {
         return;
     }
 
-    const auto* ip_header = reinterpret_cast<const ip*>(packet + kEthernetHeaderLength);
-    if (ip_header->ip_v != 4) {
-        return;
-    }
-
-    const int ip_header_length = ip_header->ip_hl * 4;
-    if (ip_header_length < 20 ||
+    const auto* ip_header = reinterpret_cast<const Ipv4Header*>(packet + kEthernetHeaderLength);
+    const uint8_t version = ip_header->version_ihl >> 4;
+    const int ip_header_length = (ip_header->version_ihl & 0x0f) * 4;
+    if (version != 4 || ip_header_length < 20 ||
         header->caplen < static_cast<bpf_u_int32>(kEthernetHeaderLength + ip_header_length)) {
         return;
     }
 
     char source_buffer[INET_ADDRSTRLEN] = {};
     char destination_buffer[INET_ADDRSTRLEN] = {};
-    inet_ntop(AF_INET, &ip_header->ip_src, source_buffer, sizeof(source_buffer));
-    inet_ntop(AF_INET, &ip_header->ip_dst, destination_buffer, sizeof(destination_buffer));
+    inet_ntop(AF_INET, &ip_header->src_addr, source_buffer, sizeof(source_buffer));
+    inet_ntop(AF_INET, &ip_header->dst_addr, destination_buffer, sizeof(destination_buffer));
 
     FlowKey key;
     key.src_ip = source_buffer;
@@ -183,7 +225,7 @@ void packet_handler(u_char* user, const pcap_pkthdr* header, const u_char* packe
     if (is_noise_ipv4(key.src_ip) || is_noise_ipv4(key.dst_ip)) {
         return;
     }
-    key.protocol = ip_header->ip_p == IPPROTO_TCP ? "tcp" : ip_header->ip_p == IPPROTO_UDP ? "udp" : "";
+    key.protocol = ip_header->protocol == IPPROTO_TCP ? "tcp" : ip_header->protocol == IPPROTO_UDP ? "udp" : "";
     if (key.protocol.empty()) {
         return;
     }
@@ -192,21 +234,21 @@ void packet_handler(u_char* user, const pcap_pkthdr* header, const u_char* packe
     const int remaining = header->caplen - kEthernetHeaderLength - ip_header_length;
     std::string flag = "SF";
 
-    if (ip_header->ip_p == IPPROTO_TCP) {
-        if (remaining < static_cast<int>(sizeof(tcphdr))) {
+    if (ip_header->protocol == IPPROTO_TCP) {
+        if (remaining < static_cast<int>(sizeof(TcpHeader))) {
             return;
         }
-        const auto* tcp = reinterpret_cast<const tcphdr*>(transport);
-        key.src_port = ntohs(tcp->th_sport);
-        key.dst_port = ntohs(tcp->th_dport);
-        flag = tcp_flag(tcp->th_flags);
-    } else if (ip_header->ip_p == IPPROTO_UDP) {
-        if (remaining < static_cast<int>(sizeof(udphdr))) {
+        const auto* tcp = reinterpret_cast<const TcpHeader*>(transport);
+        key.src_port = ntohs(tcp->src_port);
+        key.dst_port = ntohs(tcp->dst_port);
+        flag = tcp_flag(tcp->flags);
+    } else if (ip_header->protocol == IPPROTO_UDP) {
+        if (remaining < static_cast<int>(sizeof(UdpHeader))) {
             return;
         }
-        const auto* udp = reinterpret_cast<const udphdr*>(transport);
-        key.src_port = ntohs(udp->uh_sport);
-        key.dst_port = ntohs(udp->uh_dport);
+        const auto* udp = reinterpret_cast<const UdpHeader*>(transport);
+        key.src_port = ntohs(udp->src_port);
+        key.dst_port = ntohs(udp->dst_port);
     }
 
     const double seen_at = timestamp_seconds(header->ts);
@@ -339,6 +381,10 @@ void print_json(const CaptureState& state, const std::string& device, double dur
 }  // namespace
 
 int main(int argc, char** argv) {
+#ifdef _WIN32
+    WSADATA winsock_data;
+    WSAStartup(MAKEWORD(2, 2), &winsock_data);
+#endif
     int duration_seconds = 2;
     std::string device;
     bool stream = false;
@@ -393,5 +439,8 @@ int main(int argc, char** argv) {
     } while (stream && !stop_capture);
 
     pcap_close(handle);
+#ifdef _WIN32
+    WSACleanup();
+#endif
     return 0;
 }
